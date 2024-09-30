@@ -2,6 +2,7 @@ import * as Nats from "nats";
 import * as Nkeys from "nkeys.js";
 import * as Jwt from "nats-jwt";
 import type { AuthorizationRequestClaims } from "./types/AuthorizationRequestClaims";
+import { issuerSeed, type KuzcoWorkerJwtClaims } from "./get-user-token";
 
 run();
 
@@ -40,8 +41,6 @@ async function run() {
   const natsUrl = "nats://localhost:4223";
   const natsUser = "auth_service_user";
   const natsPass = "auth_service_user";
-  const issuerSeed =
-    "SAANDLKMXL6CUS3CP52WIXBEDN6YJ545GDKC65U5JZPPV6WH6ESWUA6YAI";
 
   var enc = new TextEncoder();
   var dec = new TextDecoder();
@@ -60,7 +59,6 @@ async function run() {
   const sub = nc.subscribe("$SYS.REQ.USER.AUTH");
   console.log(`listening for ${sub.getSubject()} requests...`);
   for await (const msg of sub) {
-    console.log("Auth service got message");
     await msgHandler(msg, enc, dec, issuerKeyPair);
   }
 }
@@ -100,7 +98,9 @@ async function msgHandler(
   // Check for Xkey header and decrypt
   let token: Uint8Array = req.data;
 
-  console.log(`Auth service got message: ${dec.decode(token)}`);
+  const jwtPayload = Jwt.decode<AuthorizationRequestClaims>(dec.decode(token));
+  console.log(`Auth service got message:`);
+  console.log(JSON.stringify(jwtPayload, null, 2));
 
   // Decode the authorization request claims.
   let rc: AuthorizationRequestClaims;
@@ -110,52 +110,53 @@ async function msgHandler(
       dec.decode(token)
     ) as AuthorizationRequestClaims;
   } catch (e) {
+    console.log(`Error decoding token: ${e}`);
     return respondMsg(req, "", "", "", (e as Error).message);
   }
+
+  // console.log(`Decoded token: ${JSON.stringify(rc, null, 2)}`);
 
   // Used for creating the auth response.
   const userNkey = rc.nats.user_nkey;
   const serverId = rc.nats.server_id.id;
 
+  console.log(`User Nkey: ${userNkey}`);
+  console.log(`Server ID: ${serverId}`);
+
   // Try parse token
   const authToken = rc.nats.connect_opts.auth_token;
   if (!authToken) {
+    console.log(`No auth_token in request`);
     return respondMsg(req, userNkey, serverId, "", "no auth_token in request");
   }
-  let parsedAuthToken: MyAuthToken;
-  try {
-    parsedAuthToken = JSON.parse(authToken);
-  } catch (e) {
-    return respondMsg(req, "", "", "", (e as Error).message);
+
+  console.log(`Auth token: ${authToken}`);
+
+  const parsedAuthToken: KuzcoWorkerJwtClaims = Jwt.decode(authToken);
+  console.log(`Decoded auth token: ${parsedAuthToken}`);
+
+  if (!parsedAuthToken.nats.client_info?.worker_id) {
+    return respondMsg(req, userNkey, serverId, "", "no worker_id in request");
   }
 
-  // Check if the token is valid.
-  if (parsedAuthToken.signature !== "signature-that-should-be-encrypted") {
-    return respondMsg(req, userNkey, serverId, "", "invalid credentials");
+  if (!parsedAuthToken.nats.user_nkey) {
+    return respondMsg(req, userNkey, serverId, "", "no user_nkey in request");
   }
 
-  // Check if the user exists.
-  const userProfile = userData[parsedAuthToken.user];
-  if (!userProfile) {
-    return respondMsg(req, userNkey, serverId, "", "user not found");
-  }
-
-  // Get the requested subjects/rooms for this connection (passed in the user field but should be passed in client_info field somewhow?)
-  const requestedRooms = rc.nats.connect_opts.user?.split(";") ?? [];
-  console.log(
-    `Auth service requested permission to rooms: ${JSON.stringify(
-      requestedRooms
-    )}`
-  );
+  // Check if the token is valid (this where we check the signature of the JWT token, which should be issued by the Kuzco auth service)
+  // if (parsedAuthToken.signature !== "signature-that-should-be-encrypted") {
+  //   return respondMsg(req, userNkey, serverId, "", "invalid credentials");
+  // }
 
   // User part of the JWT token to issue
   // Add "public" because if the allowed array is empty then all is allowed
   const user: Partial<Jwt.User> = {
-    pub: { allow: ["public", ...requestedRooms], deny: [] },
-    sub: { allow: ["public", ...requestedRooms], deny: [] },
+    pub: { allow: ["public", "public.>"], deny: [] },
+    sub: { allow: ["public", "public.>"], deny: [] },
   };
 
   console.log(`Auth service user: ${JSON.stringify(user)}`);
+
   // Prepare a user JWT.
   let ejwt: string;
   try {
@@ -164,11 +165,13 @@ async function msgHandler(
       rc.nats.user_nkey,
       issuerKeyPair,
       user,
-      { aud: userProfile.account }
+      { aud: "WORKERS" }
     );
   } catch (e) {
+    console.log(`Error signing user JWT: ${e}`);
     return respondMsg(req, userNkey, serverId, "", "error signing user JWT");
   }
 
+  console.log(`Encoded user JWT: ${ejwt}`);
   return respondMsg(req, userNkey, serverId, ejwt, "");
 }

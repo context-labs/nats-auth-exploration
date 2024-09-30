@@ -2,7 +2,22 @@ import * as Jwt from "nats-jwt";
 import * as Nkeys from "nkeys.js";
 
 // This needs to be PRIVATE
-const issuerSeed = "SAANDLKMXL6CUS3CP52WIXBEDN6YJ545GDKC65U5JZPPV6WH6ESWUA6YAI";
+export const issuerSeed =
+  "SAACGJQQQOYJVPXT522AZIXQKS5HRHKX6QJ6H3I5D3DAQ4YXFJ2LAUEXV4";
+
+const enc = new TextEncoder();
+
+export interface KuzcoWorkerJwtClaims
+  extends Jwt.ClaimsData<{
+    user_nkey: string;
+    client_info: {
+      worker_id: string;
+      name: string;
+    };
+    server_id: {
+      id: string;
+    };
+  }> {}
 
 /**
  * This function is intended to generate a JWT for a given user,
@@ -16,10 +31,21 @@ const issuerSeed = "SAANDLKMXL6CUS3CP52WIXBEDN6YJ545GDKC65U5JZPPV6WH6ESWUA6YAI";
 export const getUserToken = async (user: string) => {
   const nkey = "auth_service_user";
 
-  const claims: Jwt.ClaimsData<unknown> = {
+  console.log("nkey", nkey);
+  const uniqueUserNkey = Nkeys.createPair(Nkeys.Prefix.User);
+  console.log("uniqueUserNkey", uniqueUserNkey);
+
+  const claims: KuzcoWorkerJwtClaims = {
     sub: user,
     nats: {
-      user_nkey: user,
+      user_nkey: uniqueUserNkey.getPublicKey(),
+      server_id: {
+        id: "1234567890",
+      },
+      client_info: {
+        name: user,
+        worker_id: "test-worker-id",
+      },
     },
     aud: "nats://localhost:4223",
     jti: "1234567890",
@@ -27,8 +53,6 @@ export const getUserToken = async (user: string) => {
     iss: "auth_service",
     name: "auth_service",
   };
-
-  var enc = new TextEncoder();
 
   const issuerKeyPair = Nkeys.fromSeed(enc.encode(issuerSeed));
 
