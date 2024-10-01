@@ -1,11 +1,56 @@
 import { connect } from "nats";
 import * as Jwt from "nats-jwt";
 import { getUserToken } from "./get-user-token";
+import { ensureNatsStream } from "./lib/nats/ensureNatsStream";
+import { ensureNatsConsumer } from "./lib/nats/ensureNatsConsumer";
+
+const fakeJetstreamName = "inference-fast";
 
 const fakeInstanceId = "test-instance-id";
 
+const setupJetstream = async () => {
+  const natsUrl = "nats://localhost:4223";
+  const natsUser = "kuzco_relay_user";
+  const natsPass = "kuzco_relay_user";
+
+  const nc = await connect({
+    servers: natsUrl,
+    user: natsUser,
+    pass: natsPass,
+  });
+
+  const js = nc.jetstream();
+  const manager = await js.jetstreamManager();
+
+  console.log("Ensuring NATS stream exists");
+  await ensureNatsStream({
+    streamName: fakeJetstreamName,
+    natsJetstreamManager: manager,
+    streamConfig: {
+      subjects: [`${fakeJetstreamName}.>`],
+      name: fakeJetstreamName,
+    },
+  });
+
+  console.log("Ensuring NATS consumer exists");
+  await ensureNatsConsumer({
+    streamName: fakeJetstreamName,
+    consumerName: "test-worker-id",
+    consumerOptions: {
+      ack_wait: 30000000000,
+      filter_subject: `${fakeJetstreamName}.>`,
+      durable_name: "test-worker-id",
+    },
+    natsJetstreamManager: manager,
+  });
+
+  console.log("✅ Ensured NATS consumer exists");
+};
+
 const run = async () => {
   const natsUrl = "nats://localhost:4223";
+
+  await setupJetstream();
 
   console.log("Getting token for user1");
   const token = await getUserToken({
@@ -40,6 +85,29 @@ const run = async () => {
     console.log("❌ Error subscribing to subject", e);
     process.exit(1);
   }
+
+  console.log("Connecting to JetStream");
+  const js = nc.jetstream();
+  const consumer = await js.consumers.get(fakeJetstreamName, "test-worker-id");
+  console.log("✅ got consumer");
+
+  await new Promise(async (resolve, reject) => {
+    console.log("Starting consumer loop");
+    while (true) {
+      console.log("Waiting for messages...");
+
+      const messages = await consumer.fetch({
+        max_messages: 1,
+        expires: 5000,
+      });
+      for await (const message of messages) {
+        console.log("Received message:", message.data.toString());
+      }
+
+      console.log("Sleeping for 1 second");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  });
 
   console.log("\n\n");
   console.log("Now we will try to publish messages");

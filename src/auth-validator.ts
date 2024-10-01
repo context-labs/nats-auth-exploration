@@ -161,6 +161,9 @@ async function msgHandler(
         // of time so this is the best we can do to allow request/response
         // this looks like what we need https://docs.nats.io/running-a-nats-service/configuration/securing_nats/authorization#allow-responses-map
         "_INBOX.>",
+        // TODO: no need to add > here, because it will always be the instance id (or nothing)
+        "$JS.API.CONSUMER.INFO.inference-fast.>",
+        "$JS.API.CONSUMER.MSG.NEXT.inference-fast.>",
       ],
       deny: [],
     },
