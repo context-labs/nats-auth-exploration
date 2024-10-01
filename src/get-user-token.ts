@@ -13,6 +13,8 @@ export interface KuzcoWorkerJwtClaims
     client_info: {
       worker_id: string;
       name: string;
+      instance_id: string;
+      team_id: string;
     };
     server_id: {
       id: string;
@@ -28,23 +30,34 @@ export interface KuzcoWorkerJwtClaims
  *
  * @param user
  */
-export const getUserToken = async (user: string) => {
+export const getUserToken = async ({
+  userId,
+  workerId,
+  instanceId,
+  teamId,
+}: {
+  userId: string;
+  workerId: string;
+  instanceId: string;
+  teamId: string;
+}) => {
   const nkey = "auth_service_user";
 
   console.log("nkey", nkey);
   const uniqueUserNkey = Nkeys.createPair(Nkeys.Prefix.User);
-  console.log("uniqueUserNkey", uniqueUserNkey);
 
   const claims: KuzcoWorkerJwtClaims = {
-    sub: user,
+    sub: userId,
     nats: {
       user_nkey: uniqueUserNkey.getPublicKey(),
       server_id: {
         id: "1234567890",
       },
       client_info: {
-        name: user,
-        worker_id: "test-worker-id",
+        name: userId,
+        worker_id: workerId,
+        instance_id: instanceId,
+        team_id: teamId,
       },
     },
     aud: "nats://localhost:4223",

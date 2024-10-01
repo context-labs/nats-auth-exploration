@@ -151,8 +151,33 @@ async function msgHandler(
   // User part of the JWT token to issue
   // Add "public" because if the allowed array is empty then all is allowed
   const user: Partial<Jwt.User> = {
-    pub: { allow: ["public", "public.>"], deny: [] },
-    sub: { allow: ["public", "public.>"], deny: [] },
+    pub: {
+      allow: [
+        "public",
+        "public.>",
+        "instance.>",
+        // TODO: we allow all consumers to subscribe to any INBOX subject
+        // this feels risky, but we dont know what the reply subjects are ahead
+        // of time so this is the best we can do to allow request/response
+        // this looks like what we need https://docs.nats.io/running-a-nats-service/configuration/securing_nats/authorization#allow-responses-map
+        "_INBOX.>",
+      ],
+      deny: [],
+    },
+    sub: {
+      allow: [
+        "public",
+        "public.>",
+
+        // TODO: we allow all consumers to subscribe to any INBOX subject
+        // this feels risky, but we dont know what the reply subjects are ahead
+        // of time so this is the best we can do to allow request/response
+        "_INBOX.>",
+
+        `inference-benchmarking.benchmark.${parsedAuthToken.nats.client_info.instance_id}.>`,
+      ],
+      deny: [],
+    },
   };
 
   console.log(`Auth service user: ${JSON.stringify(user)}`);
