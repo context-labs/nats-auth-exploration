@@ -3,8 +3,19 @@ import * as Nkeys from "nkeys.js";
 import * as Jwt from "nats-jwt";
 import type { AuthorizationRequestClaims } from "./types/AuthorizationRequestClaims";
 import { issuerSeed, type KuzcoWorkerJwtClaims } from "./get-user-token";
+import { Redis } from "ioredis";
+
+const redis = new Redis({
+  host: "localhost",
+  port: 6380,
+});
 
 run();
+
+const isTokenRevoked = async (workerId: string) => {
+  const revoked = await redis.get(`revoked:${workerId}`);
+  return revoked === "true";
+};
 
 interface MyAuthToken {
   user: string;
@@ -143,6 +154,13 @@ async function msgHandler(
     return respondMsg(req, userNkey, serverId, "", "no user_nkey in request");
   }
 
+  const isRevoked = await isTokenRevoked(
+    parsedAuthToken.nats.client_info.worker_id
+  );
+  if (isRevoked) {
+    return respondMsg(req, userNkey, serverId, "", "token revoked");
+  }
+
   // Check if the token is valid (this where we check the signature of the JWT token, which should be issued by the Kuzco auth service)
   // if (parsedAuthToken.signature !== "signature-that-should-be-encrypted") {
   //   return respondMsg(req, userNkey, serverId, "", "invalid credentials");
@@ -187,13 +205,14 @@ async function msgHandler(
 
   // Prepare a user JWT.
   let ejwt: string;
+  const epochThirtySecondsFromNow = Math.floor(Date.now() / 1000) + 5;
   try {
     ejwt = await Jwt.encodeUser(
       rc.nats.connect_opts.user!,
       rc.nats.user_nkey,
       issuerKeyPair,
       user,
-      { aud: "WORKERS" }
+      { aud: "WORKERS", exp: epochThirtySecondsFromNow }
     );
   } catch (e) {
     console.log(`Error signing user JWT: ${e}`);

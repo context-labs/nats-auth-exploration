@@ -91,10 +91,10 @@ const run = async () => {
   const consumer = await js.consumers.get(fakeJetstreamName, "test-worker-id");
   console.log("✅ got consumer");
 
-  await new Promise(async (resolve, reject) => {
+  new Promise(async (resolve, reject) => {
     console.log("Starting consumer loop");
     while (true) {
-      console.log("Waiting for messages...");
+      console.log("\n\n\nWaiting for messages...");
 
       const messages = await consumer.fetch({
         max_messages: 1,
@@ -104,7 +104,6 @@ const run = async () => {
         console.log("Received message:", message.data.toString());
       }
 
-      console.log("Sleeping for 1 second");
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   });

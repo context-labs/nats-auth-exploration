@@ -1,35 +1,20 @@
-import { connect, StringCodec } from "nats";
+import { Redis } from "ioredis";
 
-import * as Jwt from "nats-jwt";
+const redis = new Redis({
+  host: "localhost",
+  port: 6380,
+});
 
 const revokeToken = async () => {
-  const nc = await connect({
-    servers: "nats://localhost:4223",
-    reconnect: true,
-    user: "auth_service_user",
-    pass: "auth_service_user",
-  });
-
   // token passed as arg
-  const userNkey = process.argv[2];
-  if (!userNkey) {
-    console.error("Error: user Nkey not provided");
-    console.log("Usage: bun run revoke-token.ts <user-nkey>");
+  const workerId = process.argv[2];
+  if (!workerId) {
+    console.error("Error: worker ID not provided");
+    console.log("Usage: bun run revoke-token.ts <worker-id>");
     process.exit(1);
   }
 
-  const payload = {
-    nkey: userNkey.trim(),
-  };
-
-  const sc = StringCodec();
-  console.log("Revoking token for user", userNkey);
-  nc.publish("$SYS.REQ.CLAIMS.DELETE", sc.encode(JSON.stringify(payload)));
-  //   console.log("Received response:", response);
-  console.log("Published $SYS.REQ.CLAIMS.DELETE");
-
-  await nc.drain();
-  console.log("Drained");
+  await redis.set(`revoked:${workerId}`, "true");
 };
 
 revokeToken()
